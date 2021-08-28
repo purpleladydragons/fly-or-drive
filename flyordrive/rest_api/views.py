@@ -2,6 +2,7 @@ from django.http import HttpResponse
 import json
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
+from .services.trip_calculator_service import TripCalculatorService
 
 # TODO hack
 @csrf_exempt
@@ -9,10 +10,5 @@ from django.views.decorators.csrf import csrf_exempt
 def calculate_trip(request):
     origin = request.POST.get('origin', None)
     destination = request.POST.get('destination', None)
-
-    # TODO indicate fail if either one is None
-
-    # TODO calculate info about the trip
-
-    response = json.dumps({'test': True})
+    response = json.dumps(TripCalculatorService.calculate_trip(origin, destination))
     return HttpResponse(response, content_type='application/json')
