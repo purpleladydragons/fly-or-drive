@@ -8,7 +8,8 @@ from .services.trip_calculator_service import TripCalculatorService
 @csrf_exempt
 @require_http_methods(['POST'])
 def calculate_trip(request):
-    origin = request.POST.get('origin', None)
-    destination = request.POST.get('destination', None)
+    data = json.loads(request.body)
+    origin = data.get('origin', None)
+    destination = data.get('destination', None)
     response = json.dumps(TripCalculatorService.calculate_trip(origin, destination))
     return HttpResponse(response, content_type='application/json')

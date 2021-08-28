@@ -1,6 +1,8 @@
 import os
 import requests
 import json
+import googlemaps
+from datetime import datetime
 # TODO import gateway
 
 class TripCalculatorService:
@@ -26,7 +28,7 @@ class TripCalculatorService:
         driving_route = gdm.get_driving_route(origin, destination)
 
         # TODO sample points along driving route to use for hotels and gas
-        route_sample_points = ['x']
+        route_sample_points = [(34, -122), (45, -105)]
 
         hotel_total_price = 0
         gas_total_price = 0
@@ -42,10 +44,11 @@ class TripCalculatorService:
         # TODO use flight info
         flight_info = sky.get_flight_info(origin, destination)
 
+        distance_miles = (driving_route[0] / 1000) * 0.62
         return {
             'driving': {
-                'length_miles': 0,
-                'duration_minutes': 0,
+                'length_miles': distance_miles,
+                'duration_minutes': driving_route[1],
                 'hotel_price_sum': hotel_total_price,
                 'gas_price_sum': gas_total_price,
                 'total_price': hotel_total_price + gas_total_price,
@@ -58,8 +61,21 @@ class TripCalculatorService:
 
 
 class GoogleDistanceMatrixGateway:
+    def __init__(self):
+        googlemaps_api_key = os.environ['GOOGLE_DISTANCE_MATRIX_API_KEY']
+        self.gmaps = googlemaps.Client(key=googlemaps_api_key)
+
     def get_driving_route(self, origin, destination):
-        pass
+        now = datetime.now()
+        route_info = self.gmaps.distance_matrix([origin], [destination],
+                                                mode='driving', departure_time=now,
+                                                language='en-US',
+                                                traffic_model='optimistic')
+        relevant_part = route_info['rows'][0]['elements'][0]
+        distance_meters = relevant_part['distance']['value']
+        duration_seconds = relevant_part['duration']['value']
+
+        return (distance_meters, duration_seconds)
 
 
 class GoogleHotelsGateway:
@@ -72,11 +88,19 @@ class EIAGateway:
     url = f"http://api.eia.gov/category/?api_key={eia_api_key}&category_id=711295"
 
     ca_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0R_PTE_SCA_DPG.W"
-    east_coast_thing = "http://api.eia.gov/series/?api_key=YOUR_API_KEY_HERE&series_id=PET.EMM_EPM0_PTE_R10_DPG.W"
+    us_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0_PTE_NUS_DPG.W"
 
-    # TODO should introduce another layer to convert coords to region i think
     def get_gas_prices_around_location(self, coords):
-        resp = requests.get(EIAGateway.ca_thing)
+        lat,lng = coords
+        # hack. assume california bounded simply by flat rect top, angled side, and rect bottom
+        if ((lng < -119.9 and lat < 42) or
+            (35 < lat < 39 and lng < -1.5 * lat - 123/2) or
+            (lat < 35 and lng < -114.5)):
+            to_check = EIAGateway.ca_thing
+        else:
+            to_check = EIAGateway.us_thing
+
+        resp = requests.get(to_check)
         gas_price = json.loads(resp.content)['series'][0]['data'][0][1]
         return [gas_price]
 
