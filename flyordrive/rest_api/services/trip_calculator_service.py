@@ -1,3 +1,6 @@
+import os
+import requests
+import json
 # TODO import gateway
 
 class TripCalculatorService:
@@ -23,7 +26,7 @@ class TripCalculatorService:
         driving_route = gdm.get_driving_route(origin, destination)
 
         # TODO sample points along driving route to use for hotels and gas
-        route_sample_points = []
+        route_sample_points = ['x']
 
         hotel_total_price = 0
         gas_total_price = 0
@@ -61,12 +64,21 @@ class GoogleDistanceMatrixGateway:
 
 class GoogleHotelsGateway:
     def get_hotel_prices_around_location(self, coords):
-        return []
+        return [1]
 
 
 class EIAGateway:
+    eia_api_key = os.environ['EIA_API_KEY']
+    url = f"http://api.eia.gov/category/?api_key={eia_api_key}&category_id=711295"
+
+    ca_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0R_PTE_SCA_DPG.W"
+    east_coast_thing = "http://api.eia.gov/series/?api_key=YOUR_API_KEY_HERE&series_id=PET.EMM_EPM0_PTE_R10_DPG.W"
+
+    # TODO should introduce another layer to convert coords to region i think
     def get_gas_prices_around_location(self, coords):
-        return []
+        resp = requests.get(EIAGateway.ca_thing)
+        gas_price = json.loads(resp.content)['series'][0]['data'][0][1]
+        return [gas_price]
 
 
 class SkyScannerGateway:
