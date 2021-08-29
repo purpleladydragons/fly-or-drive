@@ -3,12 +3,14 @@ import requests
 import json
 import googlemaps
 from datetime import datetime
+
+
 # TODO import gateway
 
 class TripCalculatorService:
     # TODO add a decorate to specify how it should be serialized to json compatible view
     @staticmethod
-    def calculate_trip(origin, destination):
+    def calculate_trip(origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
         """
         Given origin and destination, determine relevant trip information,
         e.g time to drive, cost of driving + hotels, flight length and price
@@ -26,20 +28,18 @@ class TripCalculatorService:
         sky = SkyScannerGateway()
 
         driving_route = gdm.get_driving_route(origin, destination)
+        distance_miles = (driving_route[0] / 1000) * 0.62
+        driving_duration_seconds = driving_route[1]
 
-        # TODO sample points along driving route to use for hotels and gas
-        route_sample_points = [(34, -122), (45, -105)]
+        # assume that you don't need a hotel on last day of trip, since you'll be at destination
+        num_stops = max(0, driving_duration_seconds / (max_one_day_driving_minutes * 60) - 1)
+        hotel_total_price = 150 * num_stops
 
-        hotel_total_price = 0
-        gas_total_price = 0
-
-        # TODO it's not this simple for calculating price of trip: you stop at hotel once a day, gas could be 0-2 times a day etc
-        for pt in route_sample_points:
-            local_hotel_prices = gh.get_hotel_prices_around_location(pt)
-            hotel_total_price += sum(local_hotel_prices) / len(local_hotel_prices)
-
-            local_gas_prices = eia.get_gas_prices_around_location(pt)
-            gas_total_price += sum(local_gas_prices) / len(local_gas_prices)
+        # assume you run car dry each time, then you're refilling gas_price * tank_size
+        # and you do that when you run out, which is mpg * tank_size miles
+        # but tank_size cancels out, so you don't need it
+        num_gas_stops = distance_miles / car_mpg
+        gas_total_price = num_gas_stops * 3.3
 
         # TODO use flight info
         flight_info = sky.get_flight_info(origin, destination)
@@ -48,7 +48,7 @@ class TripCalculatorService:
         return {
             'driving': {
                 'length_miles': distance_miles,
-                'duration_minutes': driving_route[1],
+                'duration_minutes': driving_duration_seconds / 60,
                 'hotel_price_sum': hotel_total_price,
                 'gas_price_sum': gas_total_price,
                 'total_price': hotel_total_price + gas_total_price,
@@ -91,11 +91,11 @@ class EIAGateway:
     us_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0_PTE_NUS_DPG.W"
 
     def get_gas_prices_around_location(self, coords):
-        lat,lng = coords
+        lat, lng = coords
         # hack. assume california bounded simply by flat rect top, angled side, and rect bottom
         if ((lng < -119.9 and lat < 42) or
-            (35 < lat < 39 and lng < -1.5 * lat - 123/2) or
-            (lat < 35 and lng < -114.5)):
+                (35 < lat < 39 and lng < -1.5 * lat - 123 / 2) or
+                (lat < 35 and lng < -114.5)):
             to_check = EIAGateway.ca_thing
         else:
             to_check = EIAGateway.us_thing
@@ -106,5 +106,13 @@ class EIAGateway:
 
 
 class SkyScannerGateway:
+    def __init__(self):
+        self.headers = {
+            'x-rapidapi-key': os.environ['SKYSCANNER_API_KEY'],
+            'x-rapidapi-host': "skyscanner-skyscanner-flight-search-v1.p.rapidapi.com"
+        }
+
     def get_flight_info(self, origin, destination):
-        pass
+        url = "https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/browseroutes/v1.0/US/USD/en-us/Los%20Angeles,%20CA/San%20Francisco,%20CA/2021-09/2021-09-10"
+        response = requests.request("GET", url, headers=self.headers)
+        return response.content
