@@ -3,6 +3,7 @@ import requests
 import json
 import googlemaps
 from datetime import datetime
+from math import radians, cos, sin, asin, sqrt
 
 
 # TODO import gateway
@@ -19,8 +20,6 @@ class TripCalculatorService:
         :param destination: name of destination city
         :return: TripInfoView
         """
-
-        # TODO probably accept more optional? params, like max driving in a day etc
 
         gdm = GoogleDistanceMatrixGateway()
         gh = GoogleHotelsGateway()
@@ -41,10 +40,15 @@ class TripCalculatorService:
         num_gas_stops = distance_miles / car_mpg
         gas_total_price = num_gas_stops * 3.3
 
+        flight_distance_miles = gdm.haversine(origin, destination) * 0.60
+        # +30 minutes for gate waiting
+        flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
+
         # TODO use flight info
         flight_info = sky.get_flight_info(origin, destination)
 
-        distance_miles = (driving_route[0] / 1000) * 0.62
+        # TODO remember about return leg of driving too
+
         return {
             'driving': {
                 'length_miles': distance_miles,
@@ -54,7 +58,7 @@ class TripCalculatorService:
                 'total_price': hotel_total_price + gas_total_price,
             },
             'flying': {
-                'duration_minutes': 0,
+                'duration_minutes': flight_duration_minutes,
                 'flight_price': 0
             }
         }
@@ -62,8 +66,36 @@ class TripCalculatorService:
 
 class GoogleDistanceMatrixGateway:
     def __init__(self):
-        googlemaps_api_key = os.environ['GOOGLE_DISTANCE_MATRIX_API_KEY']
+        googlemaps_api_key = os.environ['GOOGLE_API_KEY']
         self.gmaps = googlemaps.Client(key=googlemaps_api_key)
+
+    # TODO also note that this fails badly if flight requires layover
+
+    # TODO shouldnt be in the gateway, we just need to geocode and then work should be done in service
+
+    def haversine(self, origin, destination):
+        """
+        Calculate the great circle distance in kilometers between two points
+        on the earth (specified in decimal degrees)
+        """
+
+        latlng1 = self.gmaps.geocode(origin)[0]['geometry']['location']
+        lat1 = latlng1['lat']
+        lng1 = latlng1['lng']
+        latlng2 = self.gmaps.geocode(destination)[0]['geometry']['location']
+        lat2 = latlng2['lat']
+        lng2 = latlng2['lng']
+
+        # convert decimal degrees to radians
+        lng1, lat1, lng2, lat2 = map(radians, [lng1, lat1, lng2, lat2])
+
+        # haversine formula
+        dlng = lng2 - lng1
+        dlat = lat2 - lat1
+        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlng / 2) ** 2
+        c = 2 * asin(sqrt(a))
+        r = 6371  # Radius of earth in kilometers. Use 3956 for miles. Determines return value units.
+        return c * r
 
     def get_driving_route(self, origin, destination):
         now = datetime.now()
