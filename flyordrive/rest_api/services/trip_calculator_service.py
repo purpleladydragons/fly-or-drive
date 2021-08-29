@@ -47,6 +47,8 @@ class TripCalculatorService:
         :return: TripInfoView
         """
 
+        print(f"calculating trip for {origin} to {destination}")
+
         driving_route = self.gdm.get_driving_route(origin, destination)
         distance_miles = (driving_route[0] / 1000) * 0.62
         driving_duration_seconds = driving_route[1]
@@ -69,6 +71,8 @@ class TripCalculatorService:
         flight_info = self.sky.get_flight_info(origin, destination)
 
         # TODO remember about return leg of driving too
+
+        print("Finished calculations")
 
         return {
             'driving': {
