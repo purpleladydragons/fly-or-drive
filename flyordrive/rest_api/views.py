@@ -11,5 +11,6 @@ def calculate_trip(request):
     data = json.loads(request.body)
     origin = data.get('origin', None)
     destination = data.get('destination', None)
-    response = json.dumps(TripCalculatorService.calculate_trip(origin, destination))
+    # TODO dont create a new instance each request...
+    response = json.dumps(TripCalculatorService().calculate_trip(origin, destination))
     return HttpResponse(response, content_type='application/json')
