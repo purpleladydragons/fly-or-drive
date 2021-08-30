@@ -5,13 +5,13 @@ import googlemaps
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
-
-# TODO import gateway
+from ..gateways.google_distance_matrix_gateway import GoogleDistanceMatrixGateway
+from ..gateways.eia_gateway import EIAGateway
+from ..gateways.skyscanner_gateway import SkyScannerGateway
 
 class TripCalculatorService:
     def __init__(self):
         self.gdm = GoogleDistanceMatrixGateway()
-        self.gh = GoogleHotelsGateway()
         self.eia = EIAGateway()
         self.sky = SkyScannerGateway()
 
@@ -92,79 +92,3 @@ class TripCalculatorService:
                 'flight_price': avg_price
             }
         }
-
-
-class GoogleDistanceMatrixGateway:
-    def __init__(self):
-        googlemaps_api_key = os.environ['GOOGLE_API_KEY']
-        self.gmaps = googlemaps.Client(key=googlemaps_api_key)
-
-    def get_lat_lng(self, place):
-        latlng = self.gmaps.geocode(place)[0]['geometry']['location']
-        lat = latlng['lat']
-        lng = latlng['lng']
-        return lat, lng
-
-    def get_driving_route(self, origin, destination):
-        now = datetime.now()
-        route_info = self.gmaps.distance_matrix([origin], [destination],
-                                                mode='driving', departure_time=now,
-                                                language='en-US',
-                                                traffic_model='optimistic')
-        relevant_part = route_info['rows'][0]['elements'][0]
-        distance_meters = relevant_part['distance']['value']
-        duration_seconds = relevant_part['duration']['value']
-
-        return (distance_meters, duration_seconds)
-
-
-class GoogleHotelsGateway:
-    def get_hotel_prices_around_location(self, coords):
-        return [1]
-
-
-class EIAGateway:
-    eia_api_key = os.environ['EIA_API_KEY']
-    url = f"http://api.eia.gov/category/?api_key={eia_api_key}&category_id=711295"
-
-    ca_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0R_PTE_SCA_DPG.W"
-    us_thing = f"http://api.eia.gov/series/?api_key={eia_api_key}&series_id=PET.EMM_EPM0_PTE_NUS_DPG.W"
-
-    def get_gas_prices_around_location(self, coords):
-        lat, lng = coords
-        # hack. assume california bounded simply by flat rect top, angled side, and rect bottom
-        if ((lng < -119.9 and lat < 42) or
-                (35 < lat < 39 and lng < -1.5 * lat - 123 / 2) or
-                (lat < 35 and lng < -114.5)):
-            to_check = EIAGateway.ca_thing
-        else:
-            to_check = EIAGateway.us_thing
-
-        resp = requests.get(to_check)
-        gas_price = json.loads(resp.content)['series'][0]['data'][0][1]
-        return [gas_price]
-
-
-class SkyScannerGateway:
-    def __init__(self):
-        self.apikey = os.environ['SKYSCANNER_API_KEY']
-        self.headers = {
-            'x-rapidapi-key': self.apikey,
-            'x-rapidapi-host': "skyscanner-skyscanner-flight-search-v1.p.rapidapi.com"
-        }
-
-    def autosuggest_place(self, place):
-        url = "https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/autosuggest/v1.0/US/USD/en-US/"
-        querystring = {"query": place}
-        response = requests.request("GET", url, headers=self.headers, params=querystring)
-
-        # TODO move this processing into a service
-        data = json.loads(response.content)
-        return data['Places'][0]['PlaceId']
-
-    def get_flight_info(self, origin, destination):
-        origin = self.autosuggest_place(origin)
-        destination = self.autosuggest_place(destination)
-        url = f"https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/browsequotes/v1.0/US/USD/en-us/{origin}/{destination}/2021-09/2021-09"
-        response = requests.request("GET", url, headers=self.headers)
-        return json.loads(response.content)
