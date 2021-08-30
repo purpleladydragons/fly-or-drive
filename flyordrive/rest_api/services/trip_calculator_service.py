@@ -1,13 +1,22 @@
-import os
-import requests
-import json
-import googlemaps
-from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
+
+from dataclasses import dataclass
 
 from ..gateways.google_distance_matrix_gateway import GoogleDistanceMatrixGateway
 from ..gateways.eia_gateway import EIAGateway
 from ..gateways.skyscanner_gateway import SkyScannerGateway
+
+@dataclass
+class DrivingInfo:
+    distance_miles: float
+    driving_duration_seconds: int
+    hotel_total_price: float
+    gas_total_price: float
+
+@dataclass
+class FlyingInfo:
+    flight_duration_minutes: float
+    estimated_price: float
 
 class TripCalculatorService:
     def __init__(self):
@@ -15,7 +24,6 @@ class TripCalculatorService:
         self.eia = EIAGateway()
         self.sky = SkyScannerGateway()
 
-    # TODO also note that this fails badly if flight requires layover
     def haversine(self, origin, destination):
         """
         Calculate the great circle distance in kilometers between two points
@@ -36,21 +44,7 @@ class TripCalculatorService:
         r = 6371  # Radius of earth in kilometers. Use 3956 for miles. Determines return value units.
         return c * r
 
-    # TODO add a decorate to specify how it should be serialized to json compatible view
-    # TODO break up into calculate driving and calculate flying
-    # TODO flying needs to incorporate 1) rental cars 2) price/time to get from airport to wherever (uber or rental)
-    def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
-        """
-        Given origin and destination, determine relevant trip information,
-        e.g time to drive, cost of driving + hotels, flight length and price
-
-        :param origin: name of origin city
-        :param destination: name of destination city
-        :return: TripInfoView
-        """
-
-        print(f"calculating trip for {origin} to {destination}")
-
+    def __calculate_drive(self, origin, destination, max_one_day_driving_minutes, car_mpg):
         driving_route = self.gdm.get_driving_route(origin, destination)
         distance_miles = (driving_route[0] / 1000) * 0.62
         driving_duration_seconds = driving_route[1]
@@ -65,21 +59,36 @@ class TripCalculatorService:
         num_gas_stops = distance_miles / car_mpg
         gas_total_price = num_gas_stops * 3.3
 
-        # TODO do some smart processing: store skyscanner's list of airports with their coords
-        # TODO then geocode the destination and use haversine to find closest 5? airports
-        # b/c if you do closest you might get some random bs one or something idk
-        # and then calc for each of them? (but this kils the API lol)
-        # anyway, do that and you can add the time to drive from airport to place too!
+        return DrivingInfo(distance_miles, driving_duration_seconds, hotel_total_price, gas_total_price)
 
+    # TODO add another method that does flying and then driving from airports
+
+    def __calculate_flight(self, origin, destination):
         flight_distance_miles = self.haversine(origin, destination) * 0.60
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
 
-        # TODO figure out how to get duration of flight... (i guess just assume no layovers...)
-        # TODO process flight info somehwere else
         flight_info = self.sky.get_flight_info(origin, destination)
         quotes = flight_info['Quotes']
         avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
+
+        return FlyingInfo(flight_duration_minutes, avg_price)
+
+    # TODO add a decorate to specify how it should be serialized to json compatible view
+    def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
+        """
+        Given origin and destination, determine relevant trip information,
+        e.g time to drive, cost of driving + hotels, flight length and price
+
+        :param origin: name of origin city
+        :param destination: name of destination city
+        :return: TripInfoView
+        """
+
+        print(f"calculating trip for {origin} to {destination}")
+
+        driving_info = self.__calculate_drive(origin, destination, max_one_day_driving_minutes, car_mpg)
+        flying_info = self.__calculate_flight(origin, destination)
 
         # TODO remember about return leg of driving too
 
@@ -87,14 +96,14 @@ class TripCalculatorService:
 
         return {
             'driving': {
-                'length_miles': distance_miles,
-                'duration_minutes': driving_duration_seconds / 60,
-                'hotel_price_sum': hotel_total_price,
-                'gas_price_sum': gas_total_price,
-                'total_price': hotel_total_price + gas_total_price,
+                'length_miles': driving_info.distance_miles,
+                'duration_minutes': driving_info.driving_duration_seconds / 60,
+                'hotel_price_sum': driving_info.hotel_total_price,
+                'gas_price_sum': driving_info.gas_total_price,
+                'total_price': driving_info.hotel_total_price + driving_info.gas_total_price,
             },
             'flying': {
-                'duration_minutes': flight_duration_minutes,
-                'flight_price': avg_price
+                'duration_minutes': flying_info.flight_duration_minutes,
+                'flight_price': flying_info.estimated_price,
             }
         }

@@ -16,7 +16,6 @@ class SkyScannerGateway:
         querystring = {"query": place}
         response = requests.request("GET", url, headers=self.headers, params=querystring)
 
-        # TODO move this processing into a service
         data = json.loads(response.content)
         return data['Places'][0]['PlaceId']
 
