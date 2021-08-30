@@ -26,3 +26,6 @@ class GoogleDistanceMatrixGateway:
         duration_seconds = relevant_part['duration']['value']
 
         return (distance_meters, duration_seconds)
+
+    def find_airport(self, airport_code):
+        return self.gmaps.places(airport_code, type='airport')

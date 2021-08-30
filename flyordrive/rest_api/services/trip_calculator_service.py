@@ -111,16 +111,36 @@ class TripCalculatorService:
         """
 
         origin_latlng = self.gdm.get_lat_lng(origin)
-        origin_airport = self.__find_nearest_airport(origin_latlng).code
+        origin_airports = self.__find_nearest_airport(origin_latlng)
 
         destination_latlng = self.gdm.get_lat_lng(destination)
-        destination_airport = self.__find_nearest_airport(destination_latlng).code
+        destination_airports = self.__find_nearest_airport(destination_latlng)
 
-        # TODO make sure types are all right
-        drive_to_airport = self.__calculate_drive(origin, origin_airport, max_one_day_driving_minutes=480, car_mpg=20)
-        flight_info = self.__calculate_flight(origin_airport, destination_airport)
-        drive_from_airport = self.__calculate_drive(destination_airport, destination, max_one_day_driving_minutes=480,
-                                                    car_mpg=20)
+        # TODO lol this is fucking horrible
+        drive_to_airport = None
+        oa = None
+        for origin_airport in origin_airports:
+            try:
+                drive_to_airport = self.__calculate_drive(origin, origin_airport.code, max_one_day_driving_minutes=480, car_mpg=20)
+                oa = origin_airport
+                break
+            except:
+                drive_to_airport = None
+
+        drive_from_airport = None
+        da = None
+        for destination_airport in destination_airports:
+            try:
+                drive_from_airport = self.__calculate_drive(destination_airport.code, destination, max_one_day_driving_minutes=480, car_mpg=20)
+                da = destination_airport
+                break
+            except:
+                drive_from_airport = None
+
+        if drive_to_airport is None or drive_from_airport is None:
+            return "idfk"
+
+        flight_info = self.__calculate_flight(oa.code, da.code)
 
         # TODO figure out something better than this json stuff + DRY
         return {
@@ -144,18 +164,36 @@ class TripCalculatorService:
     def __find_nearest_airport(self, coords):
         # TODO use db not file
         airports = []
-        with open('/Users/austin/code/fly-or-drive/flyordrive/airport_locs.txt') as f:
+        """
+        with open('/Users/austin/code/fly-or-drive/flyordrive/major_airport_codes.txt') as f:
+            ports = f.readlines()
+            for port in ports:
+                try:
+                    resp = self.gdm.find_airport(port)
+                    loc = resp['results'][0]['geometry']['location']
+                    lat = loc['lat']
+                    lng = loc['lng']
+                    stripped_port = port.replace("\n", "").strip()
+                    line = f'{stripped_port};{lat},{lng}'
+                    print(line)
+                    with open('major_airport_locations.txt', 'a') as g:
+                        g.write(line + '\n')
+                except:
+                    pass
+        """
+
+        with open('/Users/austin/code/fly-or-drive/flyordrive/major_airport_locations.txt') as f:
             ports = f.readlines()
             for port in ports:
                 code, locs = port.split(';')
                 locs = locs.replace('(', '').replace(')', '')
-                lat, lng = locs.split(', ')
+                lat, lng = locs.split(',')
                 airports.append(Airport(code, float(lat), float(lng)))
 
         dists = [(airport, self.haversine_coords(coords, airport.coords())) for airport in airports]
         nearest_airport = sorted(dists, key=lambda d: d[1])
-        print(nearest_airport[:10])
-        return nearest_airport[0][0]
+        self.gdm.find_airport(nearest_airport[0][0].code)
+        return [port[0] for port in nearest_airport[:3]]
 
     # TODO add a decorate to specify how it should be serialized to json compatible view
     def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
