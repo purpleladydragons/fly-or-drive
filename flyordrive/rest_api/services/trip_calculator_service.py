@@ -6,6 +6,17 @@ from ..gateways.google_distance_matrix_gateway import GoogleDistanceMatrixGatewa
 from ..gateways.eia_gateway import EIAGateway
 from ..gateways.skyscanner_gateway import SkyScannerGateway
 
+
+@dataclass
+class Airport:
+    code: str
+    lat: float
+    lng: float
+
+    def coords(self):
+        return self.lat, self.lng
+
+
 @dataclass
 class DrivingInfo:
     distance_miles: float
@@ -13,10 +24,15 @@ class DrivingInfo:
     hotel_total_price: float
     gas_total_price: float
 
+    def total_price(self):
+        return self.hotel_total_price + self.gas_total_price
+
+
 @dataclass
 class FlyingInfo:
     flight_duration_minutes: float
     estimated_price: float
+
 
 class TripCalculatorService:
     def __init__(self):
@@ -24,16 +40,9 @@ class TripCalculatorService:
         self.eia = EIAGateway()
         self.sky = SkyScannerGateway()
 
-    # TODO handle latlng input as well
-    def haversine(self, origin, destination):
-        """
-        Calculate the great circle distance in kilometers between two points
-        on the earth (specified in decimal degrees)
-        """
-
-        lat1, lng1 = self.gdm.get_lat_lng(origin)
-        lat2, lng2 = self.gdm.get_lat_lng(destination)
-
+    def haversine_coords(self, origin, destination):
+        lat1, lng1 = origin
+        lat2, lng2 = destination
         # convert decimal degrees to radians
         lng1, lat1, lng2, lat2 = map(radians, [lng1, lat1, lng2, lat2])
 
@@ -45,7 +54,20 @@ class TripCalculatorService:
         r = 6371  # Radius of earth in kilometers. Use 3956 for miles. Determines return value units.
         return c * r
 
+    # TODO handle latlng input as well
+    def haversine_places(self, origin, destination):
+        """
+        Calculate the great circle distance in kilometers between two points
+        on the earth (specified in decimal degrees)
+        """
+
+        lat1, lng1 = self.gdm.get_lat_lng(origin)
+        lat2, lng2 = self.gdm.get_lat_lng(destination)
+
+        return self.haversine_coords((lat1, lng1), (lat2, lng2))
+
     def __calculate_drive(self, origin, destination, max_one_day_driving_minutes, car_mpg):
+        print("Calculating drive", origin, destination)
         driving_route = self.gdm.get_driving_route(origin, destination)
         distance_miles = (driving_route[0] / 1000) * 0.62
         driving_duration_seconds = driving_route[1]
@@ -62,16 +84,17 @@ class TripCalculatorService:
 
         return DrivingInfo(distance_miles, driving_duration_seconds, hotel_total_price, gas_total_price)
 
-    # TODO add another method that does flying and then driving from airports
-
     def __calculate_flight(self, origin, destination):
-        flight_distance_miles = self.haversine(origin, destination) * 0.60
+        flight_distance_miles = self.haversine_places(origin, destination) * 0.60
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
 
         flight_info = self.sky.get_flight_info(origin, destination)
         quotes = flight_info['Quotes']
-        avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
+        if len(quotes) == 0:
+            avg_price = float('inf')
+        else:
+            avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
 
         return FlyingInfo(flight_duration_minutes, avg_price)
 
@@ -88,25 +111,51 @@ class TripCalculatorService:
         """
 
         origin_latlng = self.gdm.get_lat_lng(origin)
-        origin_airport = self.__find_nearest_airport(origin_latlng)
+        origin_airport = self.__find_nearest_airport(origin_latlng).code
 
         destination_latlng = self.gdm.get_lat_lng(destination)
-        destination_airport = self.__find_nearest_airport(destination_latlng)
+        destination_airport = self.__find_nearest_airport(destination_latlng).code
 
         # TODO make sure types are all right
-        drive_to_airport = self.__calculate_drive(origin, origin_airport)
+        drive_to_airport = self.__calculate_drive(origin, origin_airport, max_one_day_driving_minutes=480, car_mpg=20)
         flight_info = self.__calculate_flight(origin_airport, destination_airport)
-        drive_from_airport = self.__calculate_drive(destination_airport, destination)
+        drive_from_airport = self.__calculate_drive(destination_airport, destination, max_one_day_driving_minutes=480,
+                                                    car_mpg=20)
 
-        # TODO combine the info into some coherent package
+        # TODO figure out something better than this json stuff + DRY
+        return {
+            'flying': {
+                'duration_minutes': flight_info.flight_duration_minutes,
+                'flight_price': flight_info.estimated_price,
+            },
+            'driving': {
+                'length_miles': drive_to_airport.distance_miles + drive_from_airport.distance_miles,
+                'duration_minutes': drive_to_airport.driving_duration_seconds / 60 + drive_from_airport.driving_duration_seconds / 60,
+                'hotel_price_sum': drive_to_airport.hotel_total_price + drive_from_airport.hotel_total_price,
+                'gas_price_sum': drive_to_airport.gas_total_price + drive_from_airport.gas_total_price,
+                'total_price': drive_to_airport.total_price() + drive_from_airport.total_price()
+            },
+            'total': {
+                'total_price': drive_to_airport.total_price() + flight_info.estimated_price + drive_from_airport.total_price(),
+                'total_duration_minutes': drive_to_airport.driving_duration_seconds / 60 + flight_info.flight_duration_minutes + drive_from_airport.driving_duration_seconds / 60
+            }
+        }
 
     def __find_nearest_airport(self, coords):
-        # TODO look up airports from db
+        # TODO use db not file
         airports = []
+        with open('/Users/austin/code/fly-or-drive/flyordrive/airport_locs.txt') as f:
+            ports = f.readlines()
+            for port in ports:
+                code, locs = port.split(';')
+                locs = locs.replace('(', '').replace(')', '')
+                lat, lng = locs.split(', ')
+                airports.append(Airport(code, float(lat), float(lng)))
 
-        dists = [(airport, self.haversine(coords, airport)) for airport in airports]
-        nearest_airport = sorted(dists, key=lambda d: d[1])[:3]
-        return nearest_airport
+        dists = [(airport, self.haversine_coords(coords, airport.coords())) for airport in airports]
+        nearest_airport = sorted(dists, key=lambda d: d[1])
+        print(nearest_airport[:10])
+        return nearest_airport[0][0]
 
     # TODO add a decorate to specify how it should be serialized to json compatible view
     def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
@@ -122,7 +171,7 @@ class TripCalculatorService:
         print(f"calculating trip for {origin} to {destination}")
 
         driving_info = self.__calculate_drive(origin, destination, max_one_day_driving_minutes, car_mpg)
-        flying_info = self.__calculate_flight(origin, destination)
+        flying_info = self.__calculate_flying_trip(origin, destination)
 
         # TODO remember about return leg of driving too
 
@@ -136,9 +185,5 @@ class TripCalculatorService:
                 'gas_price_sum': driving_info.gas_total_price,
                 'total_price': driving_info.hotel_total_price + driving_info.gas_total_price,
             },
-            # TODO just nest a "driving" section under it
-            'flying': {
-                'duration_minutes': flying_info.flight_duration_minutes,
-                'flight_price': flying_info.estimated_price,
-            }
+            'flying': flying_info
         }
