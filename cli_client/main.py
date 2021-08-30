@@ -24,6 +24,8 @@ class CliClient:
         flying_hours = flying_time // 60
         flying_minutes = flying_time % 60
         print(f'{int(flying_hours)} hr {int(flying_minutes)} min')
+        flying_price = flying_data['flight_price']
+        print(f'${round(flying_price, 2)}')
 
     def make_request(self, origin, destination):
         base_url = 'http://localhost:8000'

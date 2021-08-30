@@ -69,7 +69,7 @@ class TripCalculatorService:
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
 
-        # TODO figure out how to get duration of flight...
+        # TODO figure out how to get duration of flight... (i guess just assume no layovers...)
         # TODO process flight info somehwere else
         flight_info = self.sky.get_flight_info(origin, destination)
         quotes = flight_info['Quotes']
