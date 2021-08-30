@@ -37,6 +37,8 @@ class TripCalculatorService:
         return c * r
 
     # TODO add a decorate to specify how it should be serialized to json compatible view
+    # TODO break up into calculate driving and calculate flying
+    # TODO flying needs to incorporate 1) rental cars 2) price/time to get from airport to wherever (uber or rental)
     def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
         """
         Given origin and destination, determine relevant trip information,
@@ -67,8 +69,11 @@ class TripCalculatorService:
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
 
-        # TODO use flight info
+        # TODO figure out how to get duration of flight...
+        # TODO process flight info somehwere else
         flight_info = self.sky.get_flight_info(origin, destination)
+        quotes = flight_info['Quotes']
+        avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
 
         # TODO remember about return leg of driving too
 
@@ -84,7 +89,7 @@ class TripCalculatorService:
             },
             'flying': {
                 'duration_minutes': flight_duration_minutes,
-                'flight_price': 0
+                'flight_price': avg_price
             }
         }
 
@@ -142,12 +147,24 @@ class EIAGateway:
 
 class SkyScannerGateway:
     def __init__(self):
+        self.apikey = os.environ['SKYSCANNER_API_KEY']
         self.headers = {
-            'x-rapidapi-key': os.environ['SKYSCANNER_API_KEY'],
+            'x-rapidapi-key': self.apikey,
             'x-rapidapi-host': "skyscanner-skyscanner-flight-search-v1.p.rapidapi.com"
         }
 
+    def autosuggest_place(self, place):
+        url = "https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/autosuggest/v1.0/US/USD/en-US/"
+        querystring = {"query": place}
+        response = requests.request("GET", url, headers=self.headers, params=querystring)
+
+        # TODO move this processing into a service
+        data = json.loads(response.content)
+        return data['Places'][0]['PlaceId']
+
     def get_flight_info(self, origin, destination):
-        url = "https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/browseroutes/v1.0/US/USD/en-us/Los%20Angeles,%20CA/San%20Francisco,%20CA/2021-09/2021-09-10"
+        origin = self.autosuggest_place(origin)
+        destination = self.autosuggest_place(destination)
+        url = f"https://skyscanner-skyscanner-flight-search-v1.p.rapidapi.com/apiservices/browsequotes/v1.0/US/USD/en-us/{origin}/{destination}/2021-09/2021-09"
         response = requests.request("GET", url, headers=self.headers)
-        return response.content
+        return json.loads(response.content)
