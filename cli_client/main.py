@@ -20,11 +20,11 @@ class CliClient:
         print(f'${round(driving_price, 2)}')
         print("###### Flying ######")
         flying_data = data['flying']
-        flying_time = flying_data['duration_minutes']
+        flying_time = flying_data['total']['total_duration_minutes']
         flying_hours = flying_time // 60
         flying_minutes = flying_time % 60
         print(f'{int(flying_hours)} hr {int(flying_minutes)} min')
-        flying_price = flying_data['flight_price']
+        flying_price = flying_data['total']['total_price']
         print(f'${round(flying_price, 2)}')
 
     def make_request(self, origin, destination):

@@ -54,7 +54,6 @@ class TripCalculatorService:
         r = 6371  # Radius of earth in kilometers. Use 3956 for miles. Determines return value units.
         return c * r
 
-    # TODO handle latlng input as well
     def haversine_places(self, origin, destination):
         """
         Calculate the great circle distance in kilometers between two points
@@ -137,6 +136,7 @@ class TripCalculatorService:
             except:
                 drive_from_airport = None
 
+        # TODO fail more gracefully
         if drive_to_airport is None or drive_from_airport is None:
             return "idfk"
 
