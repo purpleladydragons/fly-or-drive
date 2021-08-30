@@ -65,6 +65,12 @@ class TripCalculatorService:
         num_gas_stops = distance_miles / car_mpg
         gas_total_price = num_gas_stops * 3.3
 
+        # TODO do some smart processing: store skyscanner's list of airports with their coords
+        # TODO then geocode the destination and use haversine to find closest 5? airports
+        # b/c if you do closest you might get some random bs one or something idk
+        # and then calc for each of them? (but this kils the API lol)
+        # anyway, do that and you can add the time to drive from airport to place too!
+
         flight_distance_miles = self.haversine(origin, destination) * 0.60
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
