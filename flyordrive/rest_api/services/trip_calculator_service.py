@@ -1,5 +1,7 @@
 import json
 from math import radians, cos, sin, asin, sqrt
+import os.path
+import sqlite3
 
 import dataclasses
 from dataclasses import dataclass
@@ -193,40 +195,23 @@ class TripCalculatorService:
         return flying_trip_info
 
     def __find_nearest_airport(self, coords):
-        # TODO use db not file
-        airports = []
-        """
-        with open('/Users/austin/code/fly-or-drive/flyordrive/major_airport_codes.txt') as f:
-            ports = f.readlines()
-            for port in ports:
-                try:
-                    resp = self.gdm.find_airport(port)
-                    loc = resp['results'][0]['geometry']['location']
-                    lat = loc['lat']
-                    lng = loc['lng']
-                    stripped_port = port.replace("\n", "").strip()
-                    line = f'{stripped_port};{lat},{lng}'
-                    print(line)
-                    with open('major_airport_locations.txt', 'a') as g:
-                        g.write(line + '\n')
-                except:
-                    pass
-        """
-
-        with open('/Users/austin/code/fly-or-drive/flyordrive/major_airport_locations.txt') as f:
-            ports = f.readlines()
-            for port in ports:
-                code, locs = port.split(';')
-                locs = locs.replace('(', '').replace(')', '')
-                lat, lng = locs.split(',')
-                airports.append(Airport(code, float(lat), float(lng)))
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(base_dir, '../../db.sqlite3')
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute('SELECT * FROM airport;')
+        airport_rows = cur.fetchall()
+        airports = [
+            Airport(row[1], float(row[2]), float(row[3]))
+            for row in airport_rows
+        ]
+        print(airports)
 
         dists = [(airport, self.haversine_coords(coords, airport.coords())) for airport in airports]
         nearest_airport = sorted(dists, key=lambda d: d[1])
         self.gdm.find_airport(nearest_airport[0][0].code)
         return [port[0] for port in nearest_airport[:3]]
 
-    # TODO add a decorate to specify how it should be serialized to json compatible view
     def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
         """
         Given origin and destination, determine relevant trip information,
