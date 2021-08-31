@@ -25,3 +25,5 @@ fly-or-drive/cli_client $ python main.py
 - add more airports
 - fetch hotel prices
 - use latest gas prices instead of hardcoded value
+- more accurate flight information
+  - skyscanner's API is lacking. it doesn't include flight duration, so we assume for now that all flights are direct, and then just use haversine to calculate the distance and infer the time from there using average cruising speed
