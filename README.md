@@ -5,6 +5,8 @@ An app to help you determine whether you should fly somewhere, or turn it into a
 ![](media/flyordrive-example.gif)
 
 ## Usage
+To run the app yourself, you'll need API keys. As of now, you need a key for Google and another for SkyScanner
+
 You can run the server from the django project directory:
 
 ```shell
