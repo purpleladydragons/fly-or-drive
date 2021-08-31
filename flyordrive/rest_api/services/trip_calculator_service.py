@@ -1,5 +1,7 @@
+import json
 from math import radians, cos, sin, asin, sqrt
 
+import dataclasses
 from dataclasses import dataclass
 
 from ..gateways.google_distance_matrix_gateway import GoogleDistanceMatrixGateway
@@ -20,18 +22,60 @@ class Airport:
 @dataclass
 class DrivingInfo:
     distance_miles: float
-    driving_duration_seconds: int
+    driving_duration_seconds: int  # TODO use minutes instead
     hotel_total_price: float
     gas_total_price: float
 
     def total_price(self):
         return self.hotel_total_price + self.gas_total_price
 
+    def combine(self, other):
+        return DrivingInfo(
+            distance_miles=self.distance_miles + other.distance_miles,
+            driving_duration_seconds=self.driving_duration_seconds + other.driving_duration_seconds,
+            hotel_total_price=self.hotel_total_price + other.hotel_total_price,
+            gas_total_price=self.gas_total_price + other.gas_total_price
+        )
+
+    def to_dict(self):
+        return {**dataclasses.asdict(self), **{'total_price': self.total_price()}}
+
+    def to_json(self):
+        return json.dumps(self.to_dict())
+
 
 @dataclass
-class FlyingInfo:
+class FlightInfo:
     flight_duration_minutes: float
     estimated_price: float
+
+    def to_dict(self):
+        return dataclasses.asdict(self)
+
+    def to_json(self):
+        return json.dumps(self.to_dict())
+
+
+@dataclass
+class FlyingTripInfo:
+    flight_info: FlightInfo
+    driving_info: DrivingInfo
+
+    def compute_total(self):
+        return {
+            'total_price': self.flight_info.estimated_price + self.driving_info.total_price(),
+            'total_duration_minutes': self.flight_info.flight_duration_minutes + self.driving_info.driving_duration_seconds / 60
+        }
+
+    def to_dict(self):
+        return {
+            'driving_info': self.driving_info.to_dict(),
+            'flying_info': self.flight_info.to_dict(),
+            'total_info': self.compute_total()
+        }
+
+    def to_json(self):
+        return json.dumps(self.to_dict())
 
 
 class TripCalculatorService:
@@ -95,7 +139,7 @@ class TripCalculatorService:
         else:
             avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
 
-        return FlyingInfo(flight_duration_minutes, avg_price)
+        return FlightInfo(flight_duration_minutes, avg_price)
 
     def __calculate_flying_trip(self, origin, destination):
         """
@@ -120,7 +164,8 @@ class TripCalculatorService:
         oa = None
         for origin_airport in origin_airports:
             try:
-                drive_to_airport = self.__calculate_drive(origin, origin_airport.code, max_one_day_driving_minutes=480, car_mpg=20)
+                drive_to_airport = self.__calculate_drive(origin, origin_airport.code, max_one_day_driving_minutes=480,
+                                                          car_mpg=20)
                 oa = origin_airport
                 break
             except:
@@ -130,7 +175,8 @@ class TripCalculatorService:
         da = None
         for destination_airport in destination_airports:
             try:
-                drive_from_airport = self.__calculate_drive(destination_airport.code, destination, max_one_day_driving_minutes=480, car_mpg=20)
+                drive_from_airport = self.__calculate_drive(destination_airport.code, destination,
+                                                            max_one_day_driving_minutes=480, car_mpg=20)
                 da = destination_airport
                 break
             except:
@@ -142,24 +188,9 @@ class TripCalculatorService:
 
         flight_info = self.__calculate_flight(oa.code, da.code)
 
-        # TODO figure out something better than this json stuff + DRY
-        return {
-            'flying': {
-                'duration_minutes': flight_info.flight_duration_minutes,
-                'flight_price': flight_info.estimated_price,
-            },
-            'driving': {
-                'length_miles': drive_to_airport.distance_miles + drive_from_airport.distance_miles,
-                'duration_minutes': drive_to_airport.driving_duration_seconds / 60 + drive_from_airport.driving_duration_seconds / 60,
-                'hotel_price_sum': drive_to_airport.hotel_total_price + drive_from_airport.hotel_total_price,
-                'gas_price_sum': drive_to_airport.gas_total_price + drive_from_airport.gas_total_price,
-                'total_price': drive_to_airport.total_price() + drive_from_airport.total_price()
-            },
-            'total': {
-                'total_price': drive_to_airport.total_price() + flight_info.estimated_price + drive_from_airport.total_price(),
-                'total_duration_minutes': drive_to_airport.driving_duration_seconds / 60 + flight_info.flight_duration_minutes + drive_from_airport.driving_duration_seconds / 60
-            }
-        }
+        flying_trip_info = FlyingTripInfo(flight_info, drive_to_airport.combine(drive_from_airport))
+
+        return flying_trip_info
 
     def __find_nearest_airport(self, coords):
         # TODO use db not file
@@ -216,12 +247,6 @@ class TripCalculatorService:
         print("Finished calculations")
 
         return {
-            'driving': {
-                'length_miles': driving_info.distance_miles,
-                'duration_minutes': driving_info.driving_duration_seconds / 60,
-                'hotel_price_sum': driving_info.hotel_total_price,
-                'gas_price_sum': driving_info.gas_total_price,
-                'total_price': driving_info.hotel_total_price + driving_info.gas_total_price,
-            },
-            'flying': flying_info
+            'driving': driving_info.to_dict(),
+            'flying': flying_info.to_dict()
         }
