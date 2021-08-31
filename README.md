@@ -21,3 +21,5 @@ fly-or-drive/cli_client $ python main.py
 ### TODO
 - fetch rental car prices
 - add more airports
+- fetch hotel prices
+- use latest gas prices instead of hardcoded value
