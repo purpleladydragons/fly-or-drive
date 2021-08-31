@@ -16,7 +16,8 @@ class CliClient:
         driving_hours = driving_time // 60
         driving_minutes = driving_time % 60
         driving_price = driving_data['total_price']
-        print(f'{int(driving_hours)} hr {int(driving_minutes)} min')
+        driving_distance = driving_data['distance_miles']
+        print(f'{int(driving_hours)} hr {int(driving_minutes)} min ({int(driving_distance)} miles)')
         print(f'${round(driving_price, 2)}')
         print("###### Flying ######")
         flying_data = data['flying']
