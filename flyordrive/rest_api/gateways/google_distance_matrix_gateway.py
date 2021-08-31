@@ -15,6 +15,9 @@ class GoogleDistanceMatrixGateway:
         lng = latlng['lng']
         return lat, lng
 
+    def reverse_geocode(self, coords):
+        return self.gmaps.reverse_geocode(coords)[0]['address_components'][0]['long_name']
+
     def get_driving_route(self, origin, destination):
         now = datetime.now()
         route_info = self.gmaps.distance_matrix([origin], [destination],

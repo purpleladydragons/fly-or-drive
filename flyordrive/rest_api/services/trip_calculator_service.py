@@ -130,11 +130,17 @@ class TripCalculatorService:
         return DrivingInfo(distance_miles, driving_duration_seconds, hotel_total_price, gas_total_price)
 
     def __calculate_flight(self, origin, destination):
-        flight_distance_miles = self.haversine_places(origin, destination) * 0.60
+        """
+
+        :param origin: Airport
+        :param destination: Airport
+        :return:
+        """
+        flight_distance_miles = self.haversine_coords(origin.coords(), destination.coords()) * 0.60
         # +30 minutes for gate waiting
         flight_duration_minutes = (flight_distance_miles / 550) * 60 + 30
 
-        flight_info = self.sky.get_flight_info(origin, destination)
+        flight_info = self.sky.get_flight_info(origin.code, destination.code)
         quotes = flight_info['Quotes']
         if len(quotes) == 0:
             avg_price = float('inf')
@@ -142,6 +148,42 @@ class TripCalculatorService:
             avg_price = sum([q['MinPrice'] for q in quotes]) / len(quotes)
 
         return FlightInfo(flight_duration_minutes, avg_price)
+
+    def __attempt_to_find_airports(self, place, airports, to_or_from):
+        """
+        Given a place near a list of candidate airports,
+        try to find a route from the place to/from any of the airports
+
+        :param place:
+        :param airports:
+        :param to_or_from: 'to' or 'from'
+        :return:
+        """
+        airport_drive = None
+        airport = None
+        for port in airports:
+            # TODO unfortunate workaround for now
+            # we only have the AITA codes for airports which aren't reliable for geocoding
+            # the website I used to get the AITA codes no longer works :) so it'll be manual to get the names
+            # honestly, could just run this once for each airport and save it to db :shrug:
+            port_place = self.gdm.reverse_geocode(port.coords())
+            if to_or_from == 'to':
+                origin = place
+                destination = port_place
+            else:
+                origin = port_place
+                destination = place
+            try:
+                airport_drive = self.__calculate_drive(origin,
+                                                       destination,
+                                                       max_one_day_driving_minutes=480,
+                                                       car_mpg=20)
+                airport = port
+                break
+            except:
+                pass
+
+        return airport, airport_drive
 
     def __calculate_flying_trip(self, origin, destination):
         """
@@ -161,34 +203,14 @@ class TripCalculatorService:
         destination_latlng = self.gdm.get_lat_lng(destination)
         destination_airports = self.__find_nearest_airport(destination_latlng)
 
-        # TODO lol this is fucking horrible
-        drive_to_airport = None
-        oa = None
-        for origin_airport in origin_airports:
-            try:
-                drive_to_airport = self.__calculate_drive(origin, origin_airport.code, max_one_day_driving_minutes=480,
-                                                          car_mpg=20)
-                oa = origin_airport
-                break
-            except:
-                drive_to_airport = None
+        origin_airport, drive_to_airport = self.__attempt_to_find_airports(origin, origin_airports, 'to')
+        destination_airport, drive_from_airport = self.__attempt_to_find_airports(destination, destination_airports, 'from')
 
-        drive_from_airport = None
-        da = None
-        for destination_airport in destination_airports:
-            try:
-                drive_from_airport = self.__calculate_drive(destination_airport.code, destination,
-                                                            max_one_day_driving_minutes=480, car_mpg=20)
-                da = destination_airport
-                break
-            except:
-                drive_from_airport = None
-
-        # TODO fail more gracefully
+        # TODO fail gracefully
         if drive_to_airport is None or drive_from_airport is None:
-            return "idfk"
+            return None
 
-        flight_info = self.__calculate_flight(oa.code, da.code)
+        flight_info = self.__calculate_flight(origin_airport, destination_airport)
 
         flying_trip_info = FlyingTripInfo(flight_info, drive_to_airport.combine(drive_from_airport))
 
@@ -201,16 +223,19 @@ class TripCalculatorService:
         cur = con.cursor()
         cur.execute('SELECT * FROM airport;')
         airport_rows = cur.fetchall()
+        # the below is a bad hack to sort by airport popularity
+        # the list we got the airports from was sorted by descending popularity
+        # so we can first trim the list down to nearby airports
+        # and then sort those remainders on the primary key as a proxy for most popular
+        # (because the data was inserted in desc popular order)
         airports = [
-            Airport(row[1], float(row[2]), float(row[3]))
+            (row[0], Airport(row[1], float(row[2]), float(row[3])))
             for row in airport_rows
         ]
-        print(airports)
 
-        dists = [(airport, self.haversine_coords(coords, airport.coords())) for airport in airports]
-        nearest_airport = sorted(dists, key=lambda d: d[1])
-        self.gdm.find_airport(nearest_airport[0][0].code)
-        return [port[0] for port in nearest_airport[:3]]
+        dists = [(airport, self.haversine_coords(coords, airport[1].coords())) for airport in airports]
+        nearest_airport = sorted(sorted(dists, key=lambda d: d[1])[:3], key=lambda d: d[0][0])
+        return [port[0][1] for port in nearest_airport]
 
     def calculate_trip(self, origin, destination, max_one_day_driving_minutes=8 * 60, car_mpg=20):
         """
